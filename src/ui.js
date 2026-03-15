@@ -402,42 +402,17 @@ export function showConfirm(message, onConfirm) {
 // ── Startup Modal ─────────────────────────────────────────────
 
 const startupModal = document.getElementById('startup-modal');
-const btnPickFolder = document.getElementById('btn-pick-folder');
-const projectGrid = document.getElementById('project-grid');
-const startupActions = document.getElementById('startup-actions');
-
-// Button is wired once; callback is set externally before any async work
-let _pickFolderCb = null;
-btnPickFolder.addEventListener('click', () => _pickFolderCb?.());
-
-export function setPickFolderCallback(cb) {
-  _pickFolderCb = cb;
-}
-
-export function showStartupModal() {
-  startupModal.classList.remove('hidden');
-}
+const projectGrid  = document.getElementById('project-grid');
 
 export function hideStartupModal() {
   startupModal.classList.add('hidden');
 }
 
-export function showProjectGrid(projects, onSelect, onNew, onPickFolder) {
+export function showProjectGrid(projects, onSelect, onNew) {
   projectGrid.innerHTML = '';
   projectGrid.classList.remove('hidden');
 
-  // "Change folder" option
-  if (onPickFolder) {
-    const changeFolderBtn = document.createElement('button');
-    changeFolderBtn.className = 'toolbar-btn';
-    changeFolderBtn.textContent = 'Change Folder';
-    changeFolderBtn.style.marginBottom = '12px';
-    changeFolderBtn.style.display = 'block';
-    changeFolderBtn.addEventListener('click', onPickFolder);
-    startupActions.appendChild(changeFolderBtn);
-  }
-
-  // New project card
+  // "New project" card
   const newCard = document.createElement('div');
   newCard.className = 'project-card new-card';
   newCard.textContent = '+';
@@ -451,11 +426,13 @@ export function showProjectGrid(projects, onSelect, onNew, onPickFolder) {
 
     const nameEl = document.createElement('div');
     nameEl.className = 'project-card-name';
-    nameEl.textContent = proj.name.replace('.json', '');
+    nameEl.textContent = proj.name;
 
     const dateEl = document.createElement('div');
     dateEl.className = 'project-card-date';
-    dateEl.textContent = new Date(proj.lastModified).toLocaleDateString();
+    dateEl.textContent = proj.lastModified
+      ? new Date(proj.lastModified).toLocaleDateString()
+      : '';
 
     card.appendChild(nameEl);
     card.appendChild(dateEl);
