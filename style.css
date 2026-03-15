@@ -674,6 +674,30 @@ html, body {
   color: var(--accent);
 }
 
+.project-card-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: #5a3a3a;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  display: none;
+}
+
+.project-card:hover .project-card-del {
+  display: block;
+}
+
+.project-card-del:hover {
+  background: #3a1a1a;
+  color: #e05050;
+}
+
 .project-card-name {
   font-size: 12px;
   font-weight: 500;
