@@ -135,7 +135,7 @@ html, body {
   left: 0;
   top: var(--toolbar-h);
   bottom: 0;
-  width: 380px;
+  width: 760px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
