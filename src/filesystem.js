@@ -4,7 +4,7 @@
 
 import { state, seedTestData } from './store.js';
 import { showSaveIndicator, setProjectName, showStartupModal,
-         hideStartupModal, showProjectGrid } from './ui.js';
+         hideStartupModal, showProjectGrid, setPickFolderCallback } from './ui.js';
 import { rebuildSpatialGrid, fitToScreen } from './canvas.js';
 
 // ── IndexedDB helpers ─────────────────────────────────────────
@@ -193,6 +193,26 @@ export function scheduleSave() {
 
 // ── Startup flow ──────────────────────────────────────────────
 
+// Helper: build project-grid callbacks for a given dir handle
+function makeProjectGridCallbacks(dirHandle) {
+  return {
+    onSelect: async (proj) => { await loadProject(proj.handle); hideStartupModal(); },
+    onNew:    async () => {
+      const name = prompt('New project name:');
+      if (!name) return;
+      await createNewProject(name);
+      hideStartupModal();
+    },
+    onChangeFolder: async () => {
+      const newHandle = await pickFolder();
+      if (!newHandle) return;
+      const projs = await listProjects(newHandle);
+      const cb = makeProjectGridCallbacks(newHandle);
+      showProjectGrid(projs, cb.onSelect, cb.onNew, null);
+    },
+  };
+}
+
 export async function initFilesystem() {
   if (!window.showDirectoryPicker) {
     // Browser doesn't support File System Access API — use test data
@@ -203,57 +223,26 @@ export async function initFilesystem() {
     return;
   }
 
+  // ── Register the "Pick Folder" button callback SYNCHRONOUSLY ──
+  // This must happen before any await so the button works immediately,
+  // even if the user clicks before IndexedDB finishes.
+  setPickFolderCallback(async () => {
+    const newHandle = await pickFolder();
+    if (!newHandle) return;
+    const projects = await listProjects(newHandle);
+    const cb = makeProjectGridCallbacks(newHandle);
+    showProjectGrid(projects, cb.onSelect, cb.onNew, null);
+  });
+
+  // ── Then check IndexedDB for a saved folder (async) ──
   const handle = await loadSavedFolder();
 
   if (handle) {
+    // Override: show project grid for the saved folder
     const projects = await listProjects(handle);
-    showProjectGrid(
-      projects,
-      async (proj) => {
-        await loadProject(proj.handle);
-        hideStartupModal();
-      },
-      async () => {
-        const name = prompt('New project name:');
-        if (!name) return;
-        await createNewProject(name);
-        hideStartupModal();
-      },
-      async () => {
-        // Change folder
-        const newHandle = await pickFolder();
-        if (!newHandle) return;
-        const projs = await listProjects(newHandle);
-        showProjectGrid(
-          projs,
-          async (proj) => { await loadProject(proj.handle); hideStartupModal(); },
-          async () => {
-            const name = prompt('New project name:');
-            if (!name) return;
-            await createNewProject(name);
-            hideStartupModal();
-          },
-          null
-        );
-      }
-    );
-  } else {
-    // Show startup with pick folder button
-    showStartupModal(async () => {
-      const newHandle = await pickFolder();
-      if (!newHandle) return;
-      const projects = await listProjects(newHandle);
-      showProjectGrid(
-        projects,
-        async (proj) => { await loadProject(proj.handle); hideStartupModal(); },
-        async () => {
-          const name = prompt('New project name:');
-          if (!name) return;
-          await createNewProject(name);
-          hideStartupModal();
-        },
-        null
-      );
-    });
+    const cb = makeProjectGridCallbacks(handle);
+    showProjectGrid(projects, cb.onSelect, cb.onNew, cb.onChangeFolder);
   }
+  // else: the button handler set above is already active; modal stays visible
+
 }
