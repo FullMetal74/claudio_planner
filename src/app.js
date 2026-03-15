@@ -681,112 +681,133 @@ function scheduleSave(){
 
 // ── ui ────────────────────────────────────────────────────────
 
-// Side panel
-const sidePanelEl     = document.getElementById('side-panel');
-const sidePanelTitle  = document.getElementById('side-panel-title');
-const sidePanelContent= document.getElementById('side-panel-content');
-document.getElementById('side-panel-close').addEventListener('click',closeNodePanel);
+// ── Node Editor Panel ─────────────────────────────────────────
 
-function openNodePanel(nodeId){
-  const node=state.nodes.get(nodeId);if(!node)return;
-  state.editingNode=nodeId;
-  sidePanelEl.classList.remove('hidden');
-  sidePanelTitle.textContent=node.type==='text'?'Edit Text Node':'Edit Node';
-  renderNodePanel(node);state.dirty=true;
-}
+const nodeEditorEl   = document.getElementById('node-editor');
+const nodeEditorLabel= document.getElementById('node-editor-label');
+const nodeEditorCtrl = document.getElementById('node-editor-controls');
+const nodeDescArea   = document.getElementById('node-editor-desc');
+const nodeEditorActs = document.getElementById('node-editor-actions');
+document.getElementById('node-editor-close').addEventListener('click', closeNodePanel);
 
-function closeNodePanel(){
-  state.editingNode=null;
-  sidePanelEl.classList.add('hidden');
-  state.dirty=true;
-}
-
-function renderNodePanel(node){
-  sidePanelContent.innerHTML='';
-  if(node.type==='text') renderTextNodePanel(node);
-  else renderStandardNodePanel(node);
+function openNodePanel(nodeId) {
+  const node = state.nodes.get(nodeId);
+  if (!node) return;
+  state.editingNode = nodeId;
+  nodeEditorEl.classList.remove('hidden');
+  nodeEditorLabel.textContent = node.type === 'text' ? 'TEXT NODE' : 'EDIT NODE';
+  renderEditorTop(node);
+  renderEditorBottom(node);
+  state.dirty = true;
 }
 
-function renderStandardNodePanel(node){
-  sidePanelContent.appendChild(makeField('Name',makeInput(node.name,v=>{node.name=v;state.dirty=true;markDirty();})));
-  sidePanelContent.appendChild(makeField('Description',makeTextarea(node.description,v=>{node.description=v;state.dirty=true;markDirty();})));
-  const row=document.createElement('label');row.className='panel-checkbox-row';
-  const cb=document.createElement('input');cb.type='checkbox';cb.checked=node.descriptionVisible;
-  cb.addEventListener('change',()=>{node.descriptionVisible=cb.checked;state.dirty=true;markDirty();});
-  row.appendChild(cb);row.appendChild(document.createTextNode(' Show description on node'));
-  sidePanelContent.appendChild(row);
-  sidePanelContent.appendChild(makeField('Color',makeColorPicker(node.color,c=>{node.color=c;state.dirty=true;markDirty();})));
-  sidePanelContent.appendChild(makeField('Size',makeSizeSelector(node.size,s=>{node.size=s;updateNodeInGrid(node,node.x,node.y);state.dirty=true;markDirty();})));
-  const del=document.createElement('button');del.className='delete-btn';del.textContent='Delete Node';
-  del.addEventListener('click',()=>showConfirm('Delete this node?',()=>{
-    clearSelection();state.selection.nodeIds.add(node.id);deleteSelected();closeNodePanel();
-  }));
-  sidePanelContent.appendChild(del);
+function closeNodePanel() {
+  state.editingNode = null;
+  nodeEditorEl.classList.add('hidden');
+  state.dirty = true;
 }
 
-function renderTextNodePanel(node){
-  sidePanelContent.appendChild(makeField('Content',makeTextarea(node.description||node.name,v=>{
-    node.description=v;node.name=v.split('\n')[0].slice(0,40)||'Text';state.dirty=true;markDirty();
-  })));
-  sidePanelContent.appendChild(makeField('Color',makeColorPicker(node.color,c=>{node.color=c;state.dirty=true;markDirty();})));
-  const del=document.createElement('button');del.className='delete-btn';del.textContent='Delete Node';
-  del.addEventListener('click',()=>showConfirm('Delete this node?',()=>{
-    clearSelection();state.selection.nodeIds.add(node.id);deleteSelected();closeNodePanel();
-  }));
-  sidePanelContent.appendChild(del);
-}
+// Top section: name, color swatches, size buttons
+function renderEditorTop(node) {
+  nodeEditorCtrl.innerHTML = '';
 
-function makeField(label,control){
-  const w=document.createElement('div');
-  const l=document.createElement('label');l.className='panel-label';l.textContent=label;
-  w.appendChild(l);w.appendChild(control);return w;
-}
-function makeInput(value,onChange){
-  const el=document.createElement('input');el.type='text';el.className='panel-input';el.value=value;
-  el.addEventListener('input',()=>onChange(el.value));return el;
-}
-function makeTextarea(value,onChange){
-  const el=document.createElement('textarea');el.className='panel-textarea';el.value=value;
-  el.addEventListener('input',()=>onChange(el.value));return el;
-}
-function makeColorPicker(current,onChange){
-  const wrap=document.createElement('div');
-  const grid=document.createElement('div');grid.className='color-grid';
-  for(const color of NODE_COLORS){
-    const sw=document.createElement('div');sw.className='color-swatch'+(color===current?' selected':'');
-    sw.style.background=color;
-    sw.addEventListener('click',()=>{
-      grid.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected'));
-      sw.classList.add('selected');hexIn.value=color;onChange(color);
+  // Name row
+  const nameRow = document.createElement('div');
+  nameRow.className = 'editor-name-row';
+  const nameIn = document.createElement('input');
+  nameIn.className = 'editor-name-input';
+  nameIn.type = 'text';
+  nameIn.value = node.name;
+  nameIn.placeholder = 'Node name';
+  nameIn.addEventListener('input', () => { node.name = nameIn.value; state.dirty = true; markDirty(); });
+  nameRow.appendChild(nameIn);
+  nodeEditorCtrl.appendChild(nameRow);
+
+  // Color row: swatches + hex input
+  const colorRow = document.createElement('div');
+  colorRow.className = 'editor-color-row';
+  let hexIn;
+  for (const color of NODE_COLORS) {
+    const sw = document.createElement('div');
+    sw.className = 'editor-swatch' + (color === node.color ? ' selected' : '');
+    sw.style.background = color;
+    sw.addEventListener('click', () => {
+      colorRow.querySelectorAll('.editor-swatch').forEach(s => s.classList.remove('selected'));
+      sw.classList.add('selected');
+      if (hexIn) hexIn.value = color;
+      node.color = color; state.dirty = true; markDirty();
     });
-    grid.appendChild(sw);
+    colorRow.appendChild(sw);
   }
-  wrap.appendChild(grid);
-  const hexIn=document.createElement('input');hexIn.className='color-hex-input';
-  hexIn.placeholder='#rrggbb';hexIn.value=current;hexIn.maxLength=7;
-  hexIn.addEventListener('input',()=>{
-    if(/^#[0-9a-fA-F]{6}$/.test(hexIn.value)){
-      grid.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected'));
-      onChange(hexIn.value);
+  hexIn = document.createElement('input');
+  hexIn.className = 'editor-hex-input';
+  hexIn.value = node.color;
+  hexIn.maxLength = 7;
+  hexIn.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexIn.value)) {
+      colorRow.querySelectorAll('.editor-swatch').forEach(s => s.classList.remove('selected'));
+      node.color = hexIn.value; state.dirty = true; markDirty();
     }
   });
-  wrap.appendChild(hexIn);return wrap;
-}
-function makeSizeSelector(current,onChange){
-  const grid=document.createElement('div');grid.className='size-grid';
-  const sizes=['normal','large','wide','xlarge'];
-  const labels={normal:'Normal',large:'Large',wide:'Wide',xlarge:'X-Large'};
-  for(const s of sizes){
-    const btn=document.createElement('button');btn.className='size-btn'+(s===current?' active':'');
-    btn.textContent=labels[s];
-    btn.addEventListener('click',()=>{
-      grid.querySelectorAll('.size-btn').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');onChange(s);
+  colorRow.appendChild(hexIn);
+  nodeEditorCtrl.appendChild(colorRow);
+
+  // Size row (all node types)
+  const sizeRow = document.createElement('div');
+  sizeRow.className = 'editor-size-row';
+  const sizes = ['normal','large','wide','xlarge'];
+  const labels = {normal:'Normal',large:'Large',wide:'Wide',xlarge:'XL'};
+  for (const s of sizes) {
+    const btn = document.createElement('button');
+    btn.className = 'editor-size-btn' + (s === node.size ? ' active' : '');
+    btn.textContent = labels[s];
+    btn.addEventListener('click', () => {
+      sizeRow.querySelectorAll('.editor-size-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      node.size = s;
+      if (node.type === 'text') {
+        // Apply fixed size to text node
+        node._tw = NODE_SIZES[s].w;
+        node._th = NODE_SIZES[s].h;
+      }
+      updateNodeInGrid(node, node.x, node.y); state.dirty = true; markDirty();
     });
-    grid.appendChild(btn);
+    sizeRow.appendChild(btn);
   }
-  return grid;
+  nodeEditorCtrl.appendChild(sizeRow);
 }
+
+// Bottom section: description textarea + toggle + delete
+function renderEditorBottom(node) {
+  // Description textarea (already in HTML, just wire it up)
+  nodeDescArea.value = node.description || '';
+  // Remove old listener by cloning
+  const fresh = nodeDescArea.cloneNode(true);
+  nodeDescArea.parentNode.replaceChild(fresh, nodeDescArea);
+  // Re-assign reference via id lookup
+  const descEl = document.getElementById('node-editor-desc');
+  descEl.value = node.description || '';
+  descEl.addEventListener('input', () => {
+    node.description = descEl.value;
+    if (node.type === 'text') node.name = descEl.value.split('\n')[0].slice(0, 40) || 'Text';
+    state.dirty = true; markDirty();
+  });
+
+  nodeEditorActs.innerHTML = '';
+
+  // Show-on-node toggle (standard nodes only)
+  if (node.type !== 'text') {
+    const toggleRow = document.createElement('label');
+    toggleRow.className = 'editor-toggle-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = node.descriptionVisible;
+    cb.addEventListener('change', () => { node.descriptionVisible = cb.checked; state.dirty = true; markDirty(); });
+    toggleRow.appendChild(cb);
+    toggleRow.appendChild(document.createTextNode(' Show on node'));
+    nodeEditorActs.appendChild(toggleRow);
+  }
+}
+
 
 // Context menu
 const ctxMenuEl=document.getElementById('context-menu');
@@ -871,14 +892,86 @@ function showProjectGrid(projects,onSelect,onNew){
   newCard.addEventListener('click',onNew);
   projectGridEl.appendChild(newCard);
   for(const proj of projects){
-    const card=document.createElement('div');card.className='project-card';
+    const card=document.createElement('div');card.className='project-card';card.style.position='relative';
     const nameEl=document.createElement('div');nameEl.className='project-card-name';nameEl.textContent=proj.name;
     const dateEl=document.createElement('div');dateEl.className='project-card-date';
     dateEl.textContent=proj.lastModified?new Date(proj.lastModified).toLocaleDateString():'';
-    card.appendChild(nameEl);card.appendChild(dateEl);
+    // Delete X button
+    const delBtn=document.createElement('button');delBtn.className='project-card-del';delBtn.textContent='✕';
+    delBtn.title='Delete project';
+    delBtn.addEventListener('click',async e=>{
+      e.stopPropagation();
+      if(!confirm(`Delete "${proj.name}"? This cannot be undone.`))return;
+      await idbDelete(proj.name);
+      const updated=await listProjects();
+      showProjectGrid(updated,onSelect,onNew);
+    });
+    card.appendChild(nameEl);card.appendChild(dateEl);card.appendChild(delBtn);
     card.addEventListener('click',()=>onSelect(proj));
     projectGridEl.appendChild(card);
   }
+}
+
+// ── Color picker popup ────────────────────────────────────────
+
+function showColorPickerPopup(x,y,current,onSelect){
+  const pop=document.createElement('div');
+  pop.style.cssText=`position:fixed;left:${x}px;top:${y}px;background:#1f1f26;border:1px solid #2e2e3a;border-radius:6px;padding:8px;display:flex;flex-wrap:wrap;gap:4px;width:160px;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,0.6)`;
+  for(const color of NODE_COLORS){
+    const sw=document.createElement('div');
+    sw.style.cssText=`width:20px;height:20px;border-radius:3px;background:${color};cursor:pointer;border:2px solid ${color===current?'#fff':'transparent'};flex-shrink:0`;
+    sw.addEventListener('click',()=>{pop.remove();onSelect(color);});
+    pop.appendChild(sw);
+  }
+  document.body.appendChild(pop);
+  // Also keep it on screen
+  requestAnimationFrame(()=>{
+    const r=pop.getBoundingClientRect();
+    if(r.right>window.innerWidth) pop.style.left=(x-r.width)+'px';
+    if(r.bottom>window.innerHeight) pop.style.top=(y-r.height)+'px';
+  });
+  setTimeout(()=>{
+    document.addEventListener('mousedown',function h(e){if(!pop.contains(e.target)){pop.remove();document.removeEventListener('mousedown',h);}});
+  },0);
+}
+
+// ── Export / Import ───────────────────────────────────────────
+
+function exportDiagram(){
+  if(!state.currentFile){alert('No project loaded.');return;}
+  const data={version:1,name:state.currentFile,viewport:{...state.viewport},
+    nodes:[...state.nodes.values()],connections:[...state.connections.values()],groups:[...state.groups.values()]};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=state.currentFile+'.json';a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importDiagram(){
+  const input=document.createElement('input');input.type='file';input.accept='.json';
+  input.addEventListener('change',async()=>{
+    const file=input.files[0];if(!file)return;
+    try{
+      const text=await file.text();
+      const data=JSON.parse(text);
+      const name=data.name||file.name.replace(/\.json$/i,'');
+      await idbPut({name,lastModified:Date.now(),data});
+      await loadProject(name);
+      hideStartupModal();
+    }catch(e){alert('Import failed: '+e.message);}
+  });
+  input.click();
+}
+
+// Reopen project picker (called from toolbar "Projects" button)
+async function openProjectPicker(){
+  const projects=await listProjects();
+  showProjectGrid(
+    projects,
+    async proj=>{await loadProject(proj.name);hideStartupModal();},
+    async ()=>{const name=prompt('Project name:');if(!name?.trim())return;await createNewProject(name.trim());hideStartupModal();}
+  );
+  startupModalEl.classList.remove('hidden');
 }
 
 // ── interaction ───────────────────────────────────────────────
@@ -1159,7 +1252,8 @@ function showContextMenuAt(clientX,clientY,worldX,worldY){
   if(hit.type==='group'){
     const id=hit.groupId;
     showContextMenu(clientX,clientY,[
-      {label:'Rename',action:()=>{const n=prompt('Rename group:',state.groups.get(id)?.name);if(n!==null){state.groups.get(id).name=n;state.dirty=true;markDirty();}}},
+      {label:'Rename',action:()=>{const g=state.groups.get(id);if(!g)return;const n=prompt('Rename group:',g.name);if(n!==null){g.name=n;state.dirty=true;markDirty();}}},
+      {label:'Change Color',action:()=>{const g=state.groups.get(id);if(!g)return;showColorPickerPopup(clientX,clientY,g.color,c=>{g.color=c;state.dirty=true;markDirty();});}},
       {label:'Delete',danger:true,action:()=>{state.groups.delete(id);state.dirty=true;markDirty();}},
     ]);return;
   }
@@ -1203,10 +1297,9 @@ async function boot(){
   initInteraction(canvas);
 
   document.getElementById('btn-save').addEventListener('click',saveCurrentFile);
-  document.getElementById('btn-new').addEventListener('click',async()=>{
-    const name=prompt('New project name:');if(!name?.trim())return;
-    await createNewProject(name.trim());
-  });
+  document.getElementById('btn-projects').addEventListener('click',openProjectPicker);
+  document.getElementById('btn-export').addEventListener('click',exportDiagram);
+  document.getElementById('btn-import').addEventListener('click',importDiagram);
   document.getElementById('btn-fit').addEventListener('click',fitToScreen);
 
   try{

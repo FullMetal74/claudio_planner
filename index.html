@@ -21,7 +21,9 @@
     <div id="toolbar-right">
       <span id="save-indicator"></span>
       <button id="btn-save" class="toolbar-btn">Save</button>
-      <button id="btn-new" class="toolbar-btn">New</button>
+      <button id="btn-export" class="toolbar-btn">Export</button>
+      <button id="btn-import" class="toolbar-btn">Import</button>
+      <button id="btn-projects" class="toolbar-btn">Projects</button>
       <span id="zoom-display">100%</span>
       <button id="btn-fit" class="toolbar-btn">Fit</button>
     </div>
@@ -32,14 +34,19 @@
     <!-- Canvas -->
     <canvas id="diagram-canvas"></canvas>
 
-    <!-- Side Panel -->
-    <div id="side-panel" class="hidden">
-      <div id="side-panel-header">
-        <span id="side-panel-title">Edit Node</span>
-        <button id="side-panel-close">✕</button>
+    <!-- Node Editor Panel (left side overlay) -->
+    <div id="node-editor" class="hidden">
+      <div id="node-editor-top">
+        <div id="node-editor-topbar">
+          <span id="node-editor-label">Edit Node</span>
+          <button id="node-editor-close">✕</button>
+        </div>
+        <div id="node-editor-controls"></div>
       </div>
-      <div id="side-panel-content">
-        <!-- Node edit fields injected by ui.js -->
+      <div id="node-editor-bottom">
+        <label class="panel-label" style="margin-bottom:6px;display:block">Description</label>
+        <textarea id="node-editor-desc" class="panel-textarea node-desc-area" placeholder="Node description…"></textarea>
+        <div id="node-editor-actions"></div>
       </div>
     </div>
   </div>
