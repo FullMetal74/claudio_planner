@@ -138,6 +138,7 @@ const state = {
   dragging: null, connecting: null, editingNode: null,
   lasso: null,
   hoveredConnection: null,
+  todos: [],      // [{ id, text, done }]
   undoStack: [],
   clipboard: null,
   currentFile: null,
@@ -366,7 +367,7 @@ function drawConnections(ctx, visibleNodeIds, signalDashOffset, zoom) {
     const connSel = selection.connectionIds.has(conn.id);
     const endpSel = selection.nodeIds.has(conn.fromNodeId) || selection.nodeIds.has(conn.toNodeId);
     const hovered = state.hoveredConnection === conn.id;
-    const lw = (connSel || endpSel || hovered) ? 3 : 2;
+    const lw = (connSel || endpSel || hovered) ? 6 : 4;
     drawOneConnection(ctx, conn, fromNode, toNode, alpha, lw, signalDashOffset, zoom, hovered);
   }
 }
@@ -391,16 +392,17 @@ function drawOneConnection(ctx, conn, fromNode, toNode, alpha, lineWidth, signal
   else if (conn.type === 'signal') { ctx.setLineDash([2/zoom, 6/zoom]); ctx.lineDashOffset = -signalDashOffset/zoom; }
   ctx.beginPath(); ctx.moveTo(fp.x,fp.y); ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,tp.x,tp.y); ctx.stroke();
   ctx.shadowBlur = 0;
-  drawArrow(ctx, cp2x, cp2y, tp.x, tp.y, lineWidth/zoom, hovered ? '#ff5050' : conn.color, alpha, zoom);
+  drawArrow(ctx, cp2x, cp2y, tp.x, tp.y, lineWidth, hovered ? '#ff5050' : conn.color, alpha);
   ctx.setLineDash([]); ctx.restore();
 }
 
-function drawArrow(ctx, fx, fy, tx, ty, lw, color, alpha, zoom) {
+// lw is in screen pixels; size is in world units so the arrow scales with zoom like nodes
+function drawArrow(ctx, fx, fy, tx, ty, lw, color, alpha) {
   const angle = Math.atan2(ty-fy, tx-fx);
-  const size = Math.max(8, lw*4) / zoom;
+  const size = Math.max(14, lw * 3.5); // world units — scales with zoom
   ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color;
   ctx.beginPath(); ctx.translate(tx,ty); ctx.rotate(angle);
-  ctx.moveTo(0,0); ctx.lineTo(-size,size*0.45); ctx.lineTo(-size,-size*0.45); ctx.closePath(); ctx.fill();
+  ctx.moveTo(0,0); ctx.lineTo(-size,size*0.42); ctx.lineTo(-size,-size*0.42); ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
@@ -706,6 +708,7 @@ async function loadProject(name){
   for(const n of(data.nodes||[])) state.nodes.set(n.id,n);
   for(const c of(data.connections||[])) state.connections.set(c.id,c);
   for(const g of(data.groups||[])) state.groups.set(g.id,g);
+  state.todos = data.todos ? data.todos.map(t=>({...t})) : [];
   rebuildSpatialGrid();
   state.currentFile=name;
   setProjectName(name);
@@ -720,6 +723,7 @@ async function saveCurrentFile(){
     nodes:[...state.nodes.values()],
     connections:[...state.connections.values()],
     groups:[...state.groups.values()],
+    todos: state.todos.map(t=>({...t})),
   };
   await idbPut({name:state.currentFile,lastModified:Date.now(),data});
   showSaveIndicator();
@@ -1037,6 +1041,130 @@ async function openProjectPicker(){
     async ()=>{const name=prompt('Project name:');if(!name?.trim())return;await createNewProject(name.trim());hideStartupModal();}
   );
   startupModalEl.classList.remove('hidden');
+}
+
+// ── TODO Modal ────────────────────────────────────────────────
+
+const todoModalEl  = document.getElementById('todo-modal');
+const todoListEl   = document.getElementById('todo-list');
+const todoInputEl  = document.getElementById('todo-input');
+document.getElementById('todo-close').addEventListener('click', closeTodoModal);
+document.getElementById('todo-add-btn').addEventListener('click', todoAddItem);
+todoInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') todoAddItem(); });
+// Close on backdrop click
+todoModalEl.addEventListener('mousedown', e => { if (e.target === todoModalEl) closeTodoModal(); });
+
+function openTodoModal()  { todoModalEl.classList.remove('hidden'); renderTodoList(); }
+function closeTodoModal() { todoModalEl.classList.add('hidden'); }
+
+function todoAddItem() {
+  const text = todoInputEl.value.trim();
+  if (!text) return;
+  state.todos.push({ id: generateUUID(), text, done: false });
+  todoInputEl.value = '';
+  renderTodoList();
+  markDirty();
+}
+
+// ── drag state for todo reordering ──
+let _todoDragId = null;
+let _todoDragOverId = null;
+let _todoDragSide = null; // 'top' | 'bottom'
+
+function renderTodoList() {
+  todoListEl.innerHTML = '';
+  if (state.todos.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'todo-empty';
+    empty.textContent = 'No tasks yet — add one above';
+    todoListEl.appendChild(empty);
+    return;
+  }
+  for (const todo of state.todos) {
+    const li = document.createElement('li');
+    li.className = 'todo-item' + (todo.id === _todoDragId ? ' dragging' : '');
+    li.dataset.id = todo.id;
+
+    // Drag handle
+    const handle = document.createElement('span');
+    handle.className = 'todo-drag-handle';
+    handle.textContent = '⠿';
+    handle.title = 'Drag to reorder';
+    handle.addEventListener('mousedown', e => { e.preventDefault(); todoStartDrag(todo.id); });
+
+    // Checkbox
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'todo-checkbox'; cb.checked = todo.done;
+    cb.addEventListener('change', () => { todo.done = cb.checked; renderTodoList(); markDirty(); });
+
+    // Text
+    const span = document.createElement('span');
+    span.className = 'todo-text' + (todo.done ? ' done' : '');
+    span.textContent = todo.text;
+
+    // Delete button
+    const del = document.createElement('button');
+    del.className = 'todo-del'; del.textContent = '✕'; del.title = 'Delete task';
+    del.addEventListener('click', () => {
+      state.todos = state.todos.filter(t => t.id !== todo.id);
+      renderTodoList(); markDirty();
+    });
+
+    li.appendChild(handle); li.appendChild(cb); li.appendChild(span); li.appendChild(del);
+
+    // Drop-zone highlight
+    if (_todoDragId && _todoDragOverId === todo.id) {
+      if (_todoDragSide === 'top')    li.classList.add('drag-over-top');
+      if (_todoDragSide === 'bottom') li.classList.add('drag-over-bottom');
+    }
+
+    todoListEl.appendChild(li);
+  }
+}
+
+function todoStartDrag(id) {
+  _todoDragId = id;
+
+  function onMove(e) {
+    const items = todoListEl.querySelectorAll('.todo-item[data-id]');
+    let found = null, side = 'bottom';
+    for (const li of items) {
+      const r = li.getBoundingClientRect();
+      const mid = r.top + r.height / 2;
+      if (e.clientY < r.bottom) {
+        found = li.dataset.id;
+        side = e.clientY < mid ? 'top' : 'bottom';
+        break;
+      }
+    }
+    if (_todoDragOverId !== found || _todoDragSide !== side) {
+      _todoDragOverId = found;
+      _todoDragSide   = side;
+      renderTodoList();
+    }
+  }
+
+  function onUp() {
+    if (_todoDragId && _todoDragOverId && _todoDragId !== _todoDragOverId) {
+      const from = state.todos.findIndex(t => t.id === _todoDragId);
+      let   to   = state.todos.findIndex(t => t.id === _todoDragOverId);
+      if (from !== -1 && to !== -1) {
+        const [item] = state.todos.splice(from, 1);
+        // Recalculate to after removal
+        to = state.todos.findIndex(t => t.id === _todoDragOverId);
+        const insertAt = _todoDragSide === 'bottom' ? to + 1 : to;
+        state.todos.splice(insertAt, 0, item);
+        markDirty();
+      }
+    }
+    _todoDragId = _todoDragOverId = _todoDragSide = null;
+    renderTodoList();
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 
 // ── interaction ───────────────────────────────────────────────
@@ -1395,6 +1523,7 @@ async function boot(){
   initCanvas(canvas);
   initInteraction(canvas);
 
+  document.getElementById('btn-todo').addEventListener('click',openTodoModal);
   document.getElementById('btn-save').addEventListener('click',saveCurrentFile);
   document.getElementById('btn-projects').addEventListener('click',openProjectPicker);
   document.getElementById('btn-export').addEventListener('click',exportDiagram);

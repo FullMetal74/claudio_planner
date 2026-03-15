@@ -20,6 +20,7 @@
     </div>
     <div id="toolbar-right">
       <span id="save-indicator"></span>
+      <button id="btn-todo" class="toolbar-btn">TODO</button>
       <button id="btn-save" class="toolbar-btn">Save</button>
       <button id="btn-export" class="toolbar-btn">Export</button>
       <button id="btn-import" class="toolbar-btn">Import</button>
@@ -73,6 +74,23 @@
       <h1>UnityDiagram</h1>
       <p id="startup-subtitle">Select a project or create a new one</p>
       <div id="project-grid"></div>
+    </div>
+  </div>
+
+  <!-- TODO Modal -->
+  <div id="todo-modal" class="hidden">
+    <div id="todo-box">
+      <div id="todo-header">
+        <span id="todo-title">TODO LIST</span>
+        <button id="todo-close">✕</button>
+      </div>
+      <div id="todo-add-row">
+        <input id="todo-input" type="text" placeholder="Add a task…" autocomplete="off" />
+        <button id="todo-add-btn">Add</button>
+      </div>
+      <div id="todo-list-wrap">
+        <ul id="todo-list"></ul>
+      </div>
     </div>
   </div>
 
