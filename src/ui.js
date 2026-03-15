@@ -406,9 +406,16 @@ const btnPickFolder = document.getElementById('btn-pick-folder');
 const projectGrid = document.getElementById('project-grid');
 const startupActions = document.getElementById('startup-actions');
 
-export function showStartupModal(onPickFolder) {
+// Button is wired once; callback is set externally before any async work
+let _pickFolderCb = null;
+btnPickFolder.addEventListener('click', () => _pickFolderCb?.());
+
+export function setPickFolderCallback(cb) {
+  _pickFolderCb = cb;
+}
+
+export function showStartupModal() {
   startupModal.classList.remove('hidden');
-  btnPickFolder.onclick = onPickFolder;
 }
 
 export function hideStartupModal() {
