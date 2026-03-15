@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UnityDiagram</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div id="toolbar-left">
+      <span id="app-name">UnityDiagram</span>
+    </div>
+    <div id="toolbar-center">
+      <span id="project-name">No project loaded</span>
+    </div>
+    <div id="toolbar-right">
+      <span id="save-indicator"></span>
+      <button id="btn-save" class="toolbar-btn">Save</button>
+      <button id="btn-new" class="toolbar-btn">New</button>
+      <span id="zoom-display">100%</span>
+      <button id="btn-fit" class="toolbar-btn">Fit</button>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div id="main">
+    <!-- Canvas -->
+    <canvas id="diagram-canvas"></canvas>
+
+    <!-- Side Panel -->
+    <div id="side-panel" class="hidden">
+      <div id="side-panel-header">
+        <span id="side-panel-title">Edit Node</span>
+        <button id="side-panel-close">✕</button>
+      </div>
+      <div id="side-panel-content">
+        <!-- Node edit fields injected by ui.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Menu -->
+  <div id="context-menu" class="hidden">
+    <ul id="context-menu-list"></ul>
+  </div>
+
+  <!-- Connection Type Popup -->
+  <div id="connection-popup" class="hidden">
+    <div id="connection-popup-inner">
+      <p>Connection type?</p>
+      <button data-type="hard" class="conn-btn">Hard</button>
+      <button data-type="assign" class="conn-btn">Assign</button>
+      <button data-type="signal" class="conn-btn">Signal</button>
+      <button id="conn-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Startup Modal -->
+  <div id="startup-modal">
+    <div id="startup-inner">
+      <h1>UnityDiagram</h1>
+      <p id="startup-subtitle">A diagramming tool for Unity architecture</p>
+      <div id="startup-actions">
+        <button id="btn-pick-folder" class="primary-btn">Select Diagrams Folder</button>
+      </div>
+      <div id="project-grid" class="hidden"></div>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
