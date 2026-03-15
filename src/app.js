@@ -92,7 +92,7 @@ const NODE_SIZES = {
 };
 
 function createNode(opts = {}) {
-  return {
+  const n = {
     id: opts.id || generateUUID(),
     type: opts.type || 'standard',
     x: opts.x ?? 0, y: opts.y ?? 0,
@@ -100,9 +100,15 @@ function createNode(opts = {}) {
     color: opts.color || '#4a7fc1',
     name: opts.name || 'New Node',
     description: opts.description || '',
-    descriptionVisible: opts.descriptionVisible ?? false,
+    descriptionVisible: opts.descriptionVisible ?? true,
     groupId: opts.groupId || null,
   };
+  if (n.type === 'text') {
+    n._tw = opts._tw || 200;
+    n._th = opts._th || 120;
+    n.fontSize = opts.fontSize || 12;
+  }
+  return n;
 }
 
 function createConnection(opts = {}) {
@@ -131,6 +137,7 @@ const state = {
   selection: { nodeIds: new Set(), connectionIds: new Set(), groupIds: new Set() },
   dragging: null, connecting: null, editingNode: null,
   lasso: null,
+  hoveredConnection: null,
   undoStack: [],
   clipboard: null,
   currentFile: null,
@@ -172,6 +179,13 @@ function hitTestNodeBody(node, wx, wy) {
   return wx >= node.x && wx <= node.x + sz.w && wy >= node.y && wy <= node.y + sz.h;
 }
 
+function hitTestTextResize(node, wx, wy) {
+  if (node.type !== 'text') return false;
+  const w = node._tw || 200, h = node._th || 120;
+  return wx >= node.x + w - RESIZE_HANDLE && wx <= node.x + w &&
+         wy >= node.y + h - RESIZE_HANDLE && wy <= node.y + h;
+}
+
 function drawNode(ctx, node, selected, editing, zoom) {
   if (node.type === 'text') drawTextNode(ctx, node, selected, zoom);
   else drawStandardNode(ctx, node, selected, editing, zoom);
@@ -196,15 +210,16 @@ function drawStandardNode(ctx, node, selected, editing, zoom) {
     ctx.fillStyle = '#e8e8f0';
     ctx.font = '500 12px JetBrains Mono, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const hasDesc = !!node.description;
     let nameY = y + h / 2;
-    if (node.descriptionVisible && node.description) nameY = y + h * 0.3;
+    if (hasDesc) nameY = y + h * 0.28;
     ctx.fillText(truncateText(ctx, node.name, w - 24), x + w / 2, nameY);
-    if (node.descriptionVisible && node.description) {
+    if (hasDesc) {
       ctx.fillStyle = 'rgba(200,200,212,0.7)';
       ctx.font = '400 10px JetBrains Mono, monospace';
       const lines = wrapText(ctx, node.description, w - 24);
-      let descY = y + h * 0.55 - lines.length * 7;
-      for (const line of lines.slice(0, 4)) { ctx.fillText(line, x + w / 2, descY); descY += 14; }
+      let descY = y + h * 0.48 - (Math.min(lines.length, 3) - 1) * 7;
+      for (const line of lines.slice(0, 3)) { ctx.fillText(line, x + w / 2, descY); descY += 14; }
     }
     ctx.beginPath(); ctx.arc(x + w - 12, y + 12, 4, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(200,200,220,0.4)'; ctx.fill();
@@ -234,25 +249,35 @@ function drawPorts(ctx, node, zoom) {
 }
 
 function drawTextNode(ctx, node, selected, zoom) {
-  if (!node._tw) { node._tw = TEXT_NODE_MIN_W; node._th = TEXT_NODE_MIN_H; }
+  if (!node._tw) node._tw = 200;
+  if (!node._th) node._th = 120;
+  if (!node.fontSize) node.fontSize = 12;
   const w = node._tw, h = node._th;
   const { x, y } = node;
+  const fs = node.fontSize;
+  const lineH = fs + 4;
   ctx.save();
   if (selected) { ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 10 / zoom; }
   ctx.beginPath();
   ctx.moveTo(x+6,y); ctx.lineTo(x+w,y); ctx.lineTo(x+w-6,y+h); ctx.lineTo(x,y+h); ctx.closePath();
-  ctx.fillStyle = hexToRgba(node.color, 0.25); ctx.fill();
+  ctx.fillStyle = hexToRgba(node.color, 0.2); ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = selected ? '#4a9eff' : hexToRgba(node.color, 0.6);
+  ctx.strokeStyle = selected ? '#4a9eff' : hexToRgba(node.color, 0.55);
   ctx.lineWidth = (selected ? 2 : 1) / zoom; ctx.stroke();
-  ctx.fillStyle = '#e8e8f0'; ctx.font = '400 11px JetBrains Mono, monospace';
+  ctx.fillStyle = '#e8e8f0';
+  ctx.font = `400 ${fs}px JetBrains Mono, monospace`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   const text = node.description || node.name;
-  const lines = wrapText(ctx, text, w - 16);
+  const lines = wrapText(ctx, text, w - 20);
   let ty = y + 10;
-  for (const line of lines) { ctx.fillText(line, x + 10, ty); ty += 16; }
-  ctx.fillStyle = hexToRgba(node.color, 0.5);
-  ctx.beginPath(); ctx.moveTo(x+w-12,y+h); ctx.lineTo(x+w-4,y+h); ctx.lineTo(x+w-4,y+h-12); ctx.closePath(); ctx.fill();
+  for (const line of lines) {
+    if (ty + lineH > y + h - 10) break;
+    ctx.fillText(line, x + 10, ty); ty += lineH;
+  }
+  // Resize handle (bottom-right corner triangle)
+  ctx.fillStyle = hexToRgba(node.color, 0.7);
+  ctx.beginPath();
+  ctx.moveTo(x+w-RESIZE_HANDLE,y+h); ctx.lineTo(x+w,y+h); ctx.lineTo(x+w,y+h-RESIZE_HANDLE); ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
@@ -280,6 +305,34 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
   ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
   ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+function bezierPoint(t, x0, y0, cx1, cy1, cx2, cy2, x1, y1) {
+  const u = 1-t;
+  return {
+    x: u*u*u*x0 + 3*u*u*t*cx1 + 3*u*t*t*cx2 + t*t*t*x1,
+    y: u*u*u*y0 + 3*u*u*t*cy1 + 3*u*t*t*cy2 + t*t*t*y1,
+  };
+}
+
+function hitTestConnection(conn, wx, wy) {
+  const fromNode = state.nodes.get(conn.fromNodeId);
+  const toNode   = state.nodes.get(conn.toNodeId);
+  if (!fromNode || !toNode) return false;
+  const fPorts = getPortPositions(fromNode), tPorts = getPortPositions(toNode);
+  const fCx = fromNode.x + getNodeSize(fromNode).w / 2;
+  const tCx = toNode.x   + getNodeSize(toNode).w   / 2;
+  const fp = fCx <= tCx ? fPorts.right : fPorts.left;
+  const tp = fCx <= tCx ? tPorts.left  : tPorts.right;
+  const dx = Math.abs(tp.x - fp.x);
+  const ctrl = Math.max(BEZIER_CTRL, dx * 0.4);
+  const cp1x = fp.x + ctrl, cp1y = fp.y, cp2x = tp.x - ctrl, cp2y = tp.y;
+  const HIT = 8;
+  for (let i = 0; i <= 20; i++) {
+    const pt = bezierPoint(i/20, fp.x, fp.y, cp1x, cp1y, cp2x, cp2y, tp.x, tp.y);
+    if ((pt.x-wx)**2 + (pt.y-wy)**2 <= HIT*HIT) return true;
+  }
+  return false;
 }
 
 // ── connections ───────────────────────────────────────────────
@@ -312,12 +365,13 @@ function drawConnections(ctx, visibleNodeIds, signalDashOffset, zoom) {
     }
     const connSel = selection.connectionIds.has(conn.id);
     const endpSel = selection.nodeIds.has(conn.fromNodeId) || selection.nodeIds.has(conn.toNodeId);
-    const lw = (connSel || endpSel) ? 3 : 2;
-    drawOneConnection(ctx, conn, fromNode, toNode, alpha, lw, signalDashOffset, zoom);
+    const hovered = state.hoveredConnection === conn.id;
+    const lw = (connSel || endpSel || hovered) ? 3 : 2;
+    drawOneConnection(ctx, conn, fromNode, toNode, alpha, lw, signalDashOffset, zoom, hovered);
   }
 }
 
-function drawOneConnection(ctx, conn, fromNode, toNode, alpha, lineWidth, signalDashOffset, zoom) {
+function drawOneConnection(ctx, conn, fromNode, toNode, alpha, lineWidth, signalDashOffset, zoom, hovered) {
   const fPorts = getPortPositions(fromNode), tPorts = getPortPositions(toNode);
   const fCx = fromNode.x + getNodeSize(fromNode).w / 2;
   const tCx = toNode.x   + getNodeSize(toNode).w   / 2;
@@ -329,13 +383,15 @@ function drawOneConnection(ctx, conn, fromNode, toNode, alpha, lineWidth, signal
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.strokeStyle = hexToRgba(conn.color, 1);
+  ctx.strokeStyle = hovered ? 'rgba(255,80,80,0.9)' : hexToRgba(conn.color, 1);
   ctx.lineWidth = lineWidth / zoom; ctx.lineCap = 'round';
+  if (hovered) { ctx.shadowColor = 'rgba(255,80,80,0.7)'; ctx.shadowBlur = 8/zoom; }
   if      (conn.type === 'hard')   ctx.setLineDash([]);
   else if (conn.type === 'assign') ctx.setLineDash([8/zoom, 4/zoom]);
   else if (conn.type === 'signal') { ctx.setLineDash([2/zoom, 6/zoom]); ctx.lineDashOffset = -signalDashOffset/zoom; }
   ctx.beginPath(); ctx.moveTo(fp.x,fp.y); ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,tp.x,tp.y); ctx.stroke();
-  drawArrow(ctx, cp2x, cp2y, tp.x, tp.y, lineWidth/zoom, conn.color, alpha, zoom);
+  ctx.shadowBlur = 0;
+  drawArrow(ctx, cp2x, cp2y, tp.x, tp.y, lineWidth/zoom, hovered ? '#ff5050' : conn.color, alpha, zoom);
   ctx.setLineDash([]); ctx.restore();
 }
 
@@ -643,7 +699,8 @@ async function loadProject(name){
   if(!record)return;
   state.nodes.clear();state.connections.clear();state.groups.clear();
   state.selection.nodeIds.clear();state.selection.connectionIds.clear();state.selection.groupIds.clear();
-  state.undoStack=[];state.editingNode=null;
+  state.undoStack=[];
+  if(state.editingNode) closeNodePanel();
   const data=record.data||{};
   if(data.viewport) Object.assign(state.viewport,data.viewport);
   for(const n of(data.nodes||[])) state.nodes.set(n.id,n);
@@ -711,17 +768,19 @@ function closeNodePanel() {
 function renderEditorTop(node) {
   nodeEditorCtrl.innerHTML = '';
 
-  // Name row
-  const nameRow = document.createElement('div');
-  nameRow.className = 'editor-name-row';
-  const nameIn = document.createElement('input');
-  nameIn.className = 'editor-name-input';
-  nameIn.type = 'text';
-  nameIn.value = node.name;
-  nameIn.placeholder = 'Node name';
-  nameIn.addEventListener('input', () => { node.name = nameIn.value; state.dirty = true; markDirty(); });
-  nameRow.appendChild(nameIn);
-  nodeEditorCtrl.appendChild(nameRow);
+  // Name row (for text nodes this edits the first line; description textarea is main content)
+  if (node.type !== 'text') {
+    const nameRow = document.createElement('div');
+    nameRow.className = 'editor-name-row';
+    const nameIn = document.createElement('input');
+    nameIn.className = 'editor-name-input';
+    nameIn.type = 'text';
+    nameIn.value = node.name;
+    nameIn.placeholder = 'Node name';
+    nameIn.addEventListener('input', () => { node.name = nameIn.value; state.dirty = true; markDirty(); });
+    nameRow.appendChild(nameIn);
+    nodeEditorCtrl.appendChild(nameRow);
+  }
 
   // Color row: swatches + hex input
   const colorRow = document.createElement('div');
@@ -752,60 +811,66 @@ function renderEditorTop(node) {
   colorRow.appendChild(hexIn);
   nodeEditorCtrl.appendChild(colorRow);
 
-  // Size row (all node types)
-  const sizeRow = document.createElement('div');
-  sizeRow.className = 'editor-size-row';
-  const sizes = ['normal','large','wide','xlarge'];
-  const labels = {normal:'Normal',large:'Large',wide:'Wide',xlarge:'XL'};
-  for (const s of sizes) {
-    const btn = document.createElement('button');
-    btn.className = 'editor-size-btn' + (s === node.size ? ' active' : '');
-    btn.textContent = labels[s];
-    btn.addEventListener('click', () => {
-      sizeRow.querySelectorAll('.editor-size-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      node.size = s;
-      if (node.type === 'text') {
-        // Apply fixed size to text node
-        node._tw = NODE_SIZES[s].w;
-        node._th = NODE_SIZES[s].h;
-      }
-      updateNodeInGrid(node, node.x, node.y); state.dirty = true; markDirty();
+  if (node.type === 'text') {
+    // Font size control for text nodes
+    const fsRow = document.createElement('div');
+    fsRow.className = 'editor-size-row';
+    fsRow.style.alignItems = 'center';
+    const fsLabel = document.createElement('span');
+    fsLabel.style.cssText = 'color:var(--text-dim);font-size:11px;margin-right:6px;';
+    fsLabel.textContent = 'Font:';
+    const fsDec = document.createElement('button');
+    fsDec.className = 'editor-size-btn'; fsDec.textContent = '−';
+    const fsSz = document.createElement('span');
+    fsSz.style.cssText = 'min-width:28px;text-align:center;font-size:12px;';
+    fsSz.textContent = (node.fontSize || 12) + 'px';
+    const fsInc = document.createElement('button');
+    fsInc.className = 'editor-size-btn'; fsInc.textContent = '+';
+    fsDec.addEventListener('click', () => {
+      node.fontSize = Math.max(8, (node.fontSize || 12) - 1);
+      fsSz.textContent = node.fontSize + 'px';
+      state.dirty = true; markDirty();
     });
-    sizeRow.appendChild(btn);
+    fsInc.addEventListener('click', () => {
+      node.fontSize = Math.min(48, (node.fontSize || 12) + 1);
+      fsSz.textContent = node.fontSize + 'px';
+      state.dirty = true; markDirty();
+    });
+    fsRow.appendChild(fsLabel); fsRow.appendChild(fsDec); fsRow.appendChild(fsSz); fsRow.appendChild(fsInc);
+    nodeEditorCtrl.appendChild(fsRow);
+  } else {
+    // Size preset buttons for standard nodes
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'editor-size-row';
+    const sizes = ['normal','large','wide','xlarge'];
+    const labels = {normal:'Normal',large:'Large',wide:'Wide',xlarge:'XL'};
+    for (const s of sizes) {
+      const btn = document.createElement('button');
+      btn.className = 'editor-size-btn' + (s === node.size ? ' active' : '');
+      btn.textContent = labels[s];
+      btn.addEventListener('click', () => {
+        sizeRow.querySelectorAll('.editor-size-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        node.size = s;
+        updateNodeInGrid(node, node.x, node.y); state.dirty = true; markDirty();
+      });
+      sizeRow.appendChild(btn);
+    }
+    nodeEditorCtrl.appendChild(sizeRow);
   }
-  nodeEditorCtrl.appendChild(sizeRow);
 }
 
-// Bottom section: description textarea + toggle + delete
+// Bottom section: description textarea
 function renderEditorBottom(node) {
-  // Description textarea (already in HTML, just wire it up)
-  nodeDescArea.value = node.description || '';
-  // Remove old listener by cloning
-  const fresh = nodeDescArea.cloneNode(true);
-  nodeDescArea.parentNode.replaceChild(fresh, nodeDescArea);
-  // Re-assign reference via id lookup
   const descEl = document.getElementById('node-editor-desc');
   descEl.value = node.description || '';
-  descEl.addEventListener('input', () => {
+  // Replace listener entirely — avoids accumulating handlers across node switches
+  descEl.oninput = () => {
     node.description = descEl.value;
     if (node.type === 'text') node.name = descEl.value.split('\n')[0].slice(0, 40) || 'Text';
     state.dirty = true; markDirty();
-  });
-
+  };
   nodeEditorActs.innerHTML = '';
-
-  // Show-on-node toggle (standard nodes only)
-  if (node.type !== 'text') {
-    const toggleRow = document.createElement('label');
-    toggleRow.className = 'editor-toggle-row';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.checked = node.descriptionVisible;
-    cb.addEventListener('change', () => { node.descriptionVisible = cb.checked; state.dirty = true; markDirty(); });
-    toggleRow.appendChild(cb);
-    toggleRow.appendChild(document.createTextNode(' Show on node'));
-    nodeEditorActs.appendChild(toggleRow);
-  }
 }
 
 
@@ -1014,6 +1079,11 @@ function onMouseDown(e){
     state.dragging={type:'node',startWorld:{x:world.x,y:world.y},nodeStarts:new Map(sel.map(n=>[n.id,{x:n.x,y:n.y}]))};
     state.dirty=true;return;
   }
+  if(hit.type==='textResize'){
+    const node=hit.node;
+    state.dragging={type:'textResize',nodeId:node.id,startWorld:{x:world.x,y:world.y},startW:node._tw||200,startH:node._th||120};
+    state.dirty=true;return;
+  }
   if(hit.type==='groupResize'){
     state.dragging={type:'groupResize',groupId:hit.groupId,startWorld:{x:world.x,y:world.y},startW:hit.group.width,startH:hit.group.height};
     state.dirty=true;return;
@@ -1061,6 +1131,17 @@ function onMouseMove(e){
     const dx=world.x-state.dragging.startWorld.x,dy=world.y-state.dragging.startWorld.y;
     const g=state.groups.get(state.dragging.groupId);
     if(g){g.x=state.dragging.groupStart.x+dx;g.y=state.dragging.groupStart.y+dy;state.dirty=true;markDirty();}
+    return;
+  }
+  if(state.dragging?.type==='textResize'){
+    const dx=world.x-state.dragging.startWorld.x,dy=world.y-state.dragging.startWorld.y;
+    const node=state.nodes.get(state.dragging.nodeId);
+    if(node){
+      node._tw=Math.max(TEXT_NODE_MIN_W,state.dragging.startW+dx);
+      node._th=Math.max(TEXT_NODE_MIN_H,state.dragging.startH+dy);
+      updateNodeInGrid(node,node.x,node.y);
+      state.dirty=true;markDirty();
+    }
     return;
   }
   if(state.dragging?.type==='groupResize'){
@@ -1111,7 +1192,17 @@ function onDblClick(e){
 function onKeyDown(e){
   const tag=document.activeElement?.tagName;
   if(tag==='INPUT'||tag==='TEXTAREA')return;
-  if(e.key==='Delete'||e.key==='Backspace'){deleteSelected();e.preventDefault();}
+  if(e.key==='Delete'||e.key==='Backspace'){
+    if(state.selection.nodeIds.size===0&&state.selection.connectionIds.size===0&&state.hoveredConnection){
+      pushSnapshot();
+      state.connections.delete(state.hoveredConnection);
+      state.hoveredConnection=null;
+      state.dirty=true;markDirty();
+    } else {
+      deleteSelected();
+    }
+    e.preventDefault();
+  }
   else if(e.key==='Escape'){
     if(state.connecting){state.connecting=null;canvasEl.classList.remove('connecting');state.dirty=true;}
     else if(state.editingNode){closeNodePanel();}
@@ -1132,8 +1223,10 @@ function hitTestAll(wx,wy){
     const port=hitTestPort(node,wx,wy);
     if(port)return{type:'port',nodeId:node.id,port};
   }
-  for(const node of [...state.nodes.values()].reverse())
+  for(const node of [...state.nodes.values()].reverse()){
+    if(hitTestTextResize(node,wx,wy))return{type:'textResize',nodeId:node.id,node};
     if(hitTestNodeBody(node,wx,wy))return{type:'node',nodeId:node.id};
+  }
   for(const group of [...state.groups.values()].reverse()){
     const zone=hitTestGroup(group,wx,wy);
     if(zone==='resize')return{type:'groupResize',groupId:group.id,group};
@@ -1148,6 +1241,12 @@ function updateHover(wx,wy){
     const port=hitTestPort(node,wx,wy);
     if(node._hoveredPort!==(port||null)){node._hoveredPort=port||null;changed=true;}
   }
+  // Connection hover
+  let foundConn=null;
+  for(const conn of state.connections.values()){
+    if(hitTestConnection(conn,wx,wy)){foundConn=conn.id;break;}
+  }
+  if(state.hoveredConnection!==foundConn){state.hoveredConnection=foundConn;changed=true;}
   if(changed)state.dirty=true;
 }
 
