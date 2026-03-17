@@ -136,7 +136,7 @@ const state = {
   nodes: new Map(), connections: new Map(), groups: new Map(),
   selection: { nodeIds: new Set(), connectionIds: new Set(), groupIds: new Set() },
   dragging: null, connecting: null, editingNode: null,
-  lasso: null,
+  marquee: null,
   hoveredConnection: null,
   todos: [],      // [{ id, text, done }]
   undoStack: [],
@@ -209,17 +209,17 @@ function drawStandardNode(ctx, node, selected, editing, zoom) {
   ctx.beginPath(); roundRect(ctx, x, y, w, h, CORNER_RADIUS); ctx.stroke();
   if (!lowZoom) {
     ctx.fillStyle = '#e8e8f0';
-    ctx.font = '500 12px JetBrains Mono, monospace';
+    ctx.font = '500 13px JetBrains Mono, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const hasDesc = !!node.description;
+    const hasDesc = node.descriptionVisible && !!node.description;
     let nameY = y + h / 2;
-    if (hasDesc) nameY = y + h * 0.28;
+    if (hasDesc) nameY = y + h * 0.22;
     ctx.fillText(truncateText(ctx, node.name, w - 24), x + w / 2, nameY);
     if (hasDesc) {
       ctx.fillStyle = 'rgba(200,200,212,0.7)';
       ctx.font = '400 10px JetBrains Mono, monospace';
       const lines = wrapText(ctx, node.description, w - 24);
-      let descY = y + h * 0.48 - (Math.min(lines.length, 3) - 1) * 7;
+      let descY = y + h * 0.52 - (Math.min(lines.length, 3) - 1) * 7;
       for (const line of lines.slice(0, 3)) { ctx.fillText(line, x + w / 2, descY); descY += 14; }
     }
     ctx.beginPath(); ctx.arc(x + w - 12, y + 12, 4, 0, Math.PI * 2);
@@ -323,11 +323,13 @@ function hitTestConnection(conn, wx, wy) {
   const fPorts = getPortPositions(fromNode), tPorts = getPortPositions(toNode);
   const fCx = fromNode.x + getNodeSize(fromNode).w / 2;
   const tCx = toNode.x   + getNodeSize(toNode).w   / 2;
-  const fp = fCx <= tCx ? fPorts.right : fPorts.left;
-  const tp = fCx <= tCx ? tPorts.left  : tPorts.right;
+  const fromIsLeftHT = fCx <= tCx;
+  const fp = fromIsLeftHT ? fPorts.right : fPorts.left;
+  const tp = fromIsLeftHT ? tPorts.left  : tPorts.right;
   const dx = Math.abs(tp.x - fp.x);
   const ctrl = Math.max(BEZIER_CTRL, dx * 0.4);
-  const cp1x = fp.x + ctrl, cp1y = fp.y, cp2x = tp.x - ctrl, cp2y = tp.y;
+  const cp1x = fromIsLeftHT ? fp.x + ctrl : fp.x - ctrl, cp1y = fp.y;
+  const cp2x = fromIsLeftHT ? tp.x - ctrl : tp.x + ctrl, cp2y = tp.y;
   const HIT = 8;
   for (let i = 0; i <= 20; i++) {
     const pt = bezierPoint(i/20, fp.x, fp.y, cp1x, cp1y, cp2x, cp2y, tp.x, tp.y);
@@ -376,11 +378,13 @@ function drawOneConnection(ctx, conn, fromNode, toNode, alpha, lineWidth, signal
   const fPorts = getPortPositions(fromNode), tPorts = getPortPositions(toNode);
   const fCx = fromNode.x + getNodeSize(fromNode).w / 2;
   const tCx = toNode.x   + getNodeSize(toNode).w   / 2;
-  const fp = fCx <= tCx ? fPorts.right : fPorts.left;
-  const tp = fCx <= tCx ? tPorts.left  : tPorts.right;
+  const fromIsLeft = fCx <= tCx;
+  const fp = fromIsLeft ? fPorts.right : fPorts.left;
+  const tp = fromIsLeft ? tPorts.left  : tPorts.right;
   const dx = Math.abs(tp.x - fp.x);
   const ctrl = Math.max(BEZIER_CTRL, dx * 0.4);
-  const cp1x = fp.x + ctrl, cp1y = fp.y, cp2x = tp.x - ctrl, cp2y = tp.y;
+  const cp1x = fromIsLeft ? fp.x + ctrl : fp.x - ctrl, cp1y = fp.y;
+  const cp2x = fromIsLeft ? tp.x - ctrl : tp.x + ctrl, cp2y = tp.y;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -441,7 +445,8 @@ function drawGroup(ctx, group, selected, zoom) {
   if (selected) { ctx.shadowColor = '#4a9eff'; ctx.shadowBlur = 8/zoom; }
   ctx.strokeRect(x,y,w,h); ctx.shadowBlur = 0;
   ctx.fillStyle = hexToRgba(color, 0.9);
-  ctx.font = '500 13px JetBrains Mono, monospace';
+  const labelSize = Math.min(13, 20 / zoom);
+  ctx.font = `500 ${labelSize}px JetBrains Mono, monospace`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.fillText(name, x+8, y+6);
   ctx.fillStyle = hexToRgba(color, 0.5);
@@ -572,7 +577,7 @@ function render(){
     if(node) drawNode(ctx,node,state.selection.nodeIds.has(id),state.editingNode===id,zoom);
   }
   if(state.connecting) drawInProgressConnection(ctx,zoom);
-  if(state.lasso&&state.lasso.points.length>1) drawLasso(state.lasso.points);
+  if(state.marquee) drawMarquee(state.marquee, zoom);
   ctx.restore();
   updateZoomDisplay(zoom);
 }
@@ -589,13 +594,15 @@ function drawGrid(vp,zoom){
     }
 }
 
-function drawLasso(points){
+function drawMarquee(m, zoom){
+  const x=Math.min(m.startX,m.endX), y=Math.min(m.startY,m.endY);
+  const w=Math.abs(m.endX-m.startX), h=Math.abs(m.endY-m.startY);
   ctx.save();
-  ctx.strokeStyle='rgba(74,158,255,0.6)'; ctx.lineWidth=1.5;
-  ctx.setLineDash([4,3]);
-  ctx.beginPath(); ctx.moveTo(points[0].x,points[0].y);
-  for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x,points[i].y);
-  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.fillStyle='rgba(74,158,255,0.06)'; ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle='rgba(74,158,255,0.8)'; ctx.lineWidth=1.5/zoom;
+  ctx.setLineDash([4/zoom,3/zoom]);
+  ctx.strokeRect(x,y,w,h);
+  ctx.setLineDash([]); ctx.restore();
 }
 
 function screenToWorld(sx,sy){
@@ -1218,11 +1225,12 @@ function onMouseDown(e){
   }
   if(hit.type==='group'){
     if(!state.selection.groupIds.has(hit.groupId)){if(!e.shiftKey)clearSelection();state.selection.groupIds.add(hit.groupId);}
-    state.dragging={type:'group',groupId:hit.groupId,startWorld:{x:world.x,y:world.y},groupStart:{x:hit.group.x,y:hit.group.y}};
+    const groupNodes=[...state.nodes.values()].filter(n=>n.groupId===hit.groupId);
+    state.dragging={type:'group',groupId:hit.groupId,startWorld:{x:world.x,y:world.y},groupStart:{x:hit.group.x,y:hit.group.y},nodeGroupStarts:new Map(groupNodes.map(n=>[n.id,{x:n.x,y:n.y}]))};
     state.dirty=true;return;
   }
   if(!e.shiftKey)clearSelection();
-  state.lasso={points:[world],additive:e.shiftKey};state.dirty=true;
+  state.marquee={startX:world.x,startY:world.y,endX:world.x,endY:world.y,additive:e.shiftKey};state.dirty=true;
 }
 
 function onMouseMove(e){
@@ -1258,7 +1266,16 @@ function onMouseMove(e){
   if(state.dragging?.type==='group'){
     const dx=world.x-state.dragging.startWorld.x,dy=world.y-state.dragging.startWorld.y;
     const g=state.groups.get(state.dragging.groupId);
-    if(g){g.x=state.dragging.groupStart.x+dx;g.y=state.dragging.groupStart.y+dy;state.dirty=true;markDirty();}
+    if(g){
+      g.x=state.dragging.groupStart.x+dx;g.y=state.dragging.groupStart.y+dy;
+      if(state.dragging.nodeGroupStarts){
+        for(const[id,start]of state.dragging.nodeGroupStarts){
+          const node=state.nodes.get(id);if(!node)continue;
+          const ox=node.x,oy=node.y;node.x=start.x+dx;node.y=start.y+dy;updateNodeInGrid(node,ox,oy);
+        }
+      }
+      state.dirty=true;markDirty();
+    }
     return;
   }
   if(state.dragging?.type==='textResize'){
@@ -1278,15 +1295,8 @@ function onMouseMove(e){
     if(g){g.width=Math.max(100,state.dragging.startW+dx);g.height=Math.max(60,state.dragging.startH+dy);state.dirty=true;markDirty();}
     return;
   }
-  if(state.lasso){
-    state.lasso.points.push(world);
-    for(const node of state.nodes.values()){
-      if(!state.selection.nodeIds.has(node.id)){
-        const sz=getNodeSize(node);
-        if(world.x>=node.x&&world.x<=node.x+sz.w&&world.y>=node.y&&world.y<=node.y+sz.h)
-          state.selection.nodeIds.add(node.id);
-      }
-    }
+  if(state.marquee){
+    state.marquee.endX=world.x;state.marquee.endY=world.y;
     state.dirty=true;return;
   }
   updateHover(world.x,world.y);
@@ -1306,8 +1316,21 @@ function onMouseUp(e){
     finishConnection(world.x,world.y,e.clientX,e.clientY);
     state.connecting=null;state.dirty=true;mouseDownButton=-1;return;
   }
-  if(state.dragging){state.dragging=null;markDirty();}
-  if(state.lasso){state.lasso=null;state.dirty=true;}
+  if(state.dragging){
+    if(state.dragging.type==='node') updateNodeGroupMembership(state.dragging.nodeStarts);
+    state.dragging=null;markDirty();
+  }
+  if(state.marquee){
+    const mx=Math.min(state.marquee.startX,state.marquee.endX);
+    const my=Math.min(state.marquee.startY,state.marquee.endY);
+    const mw=Math.abs(state.marquee.endX-state.marquee.startX);
+    const mh=Math.abs(state.marquee.endY-state.marquee.startY);
+    for(const node of state.nodes.values()){
+      const sz=getNodeSize(node);
+      if(aabbIntersects(node.x,node.y,sz.w,sz.h,mx,my,mw,mh)) state.selection.nodeIds.add(node.id);
+    }
+    state.marquee=null;state.dirty=true;
+  }
   mouseDownButton=-1;mouseDownPos=null;
 }
 
@@ -1407,6 +1430,19 @@ function finishConnection(wx,wy,clientX,clientY){
 
 function clearSelection(){
   state.selection.nodeIds.clear();state.selection.connectionIds.clear();state.selection.groupIds.clear();
+}
+
+function updateNodeGroupMembership(movedNodeIds){
+  for(const id of movedNodeIds.keys()){
+    const node=state.nodes.get(id);if(!node)continue;
+    const sz=getNodeSize(node);
+    const cx=node.x+sz.w/2, cy=node.y+sz.h/2;
+    let found=null;
+    for(const g of state.groups.values()){
+      if(cx>=g.x&&cx<=g.x+g.width&&cy>=g.y&&cy<=g.y+g.height){found=g.id;break;}
+    }
+    node.groupId=found;
+  }
 }
 
 function deleteSelected(){
